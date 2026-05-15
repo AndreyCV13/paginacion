@@ -2,7 +2,7 @@
 Proyecto 2 de Sistemas Operativos
 https://github.com/AndreyCV13/paginacion
 
-Link del informe: https://www.overleaf.com/9752767976ygmpfnfnqbjr#2d875e
+Link del informe: 
 
 ---
 ## Conclusiones
