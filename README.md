@@ -1,4 +1,4 @@
-# huffman
+# Paginación
 Proyecto 2 de Sistemas Operativos
 https://github.com/AndreyCV13/paginacion
 
