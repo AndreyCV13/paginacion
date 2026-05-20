@@ -7,7 +7,7 @@ Link del informe:
 ---
 ## Ejecución
 - [ ] Inputs del usuario (Procesos, instrucciones, seed)
-- [ ] Lista de Accesos Invertida
+- [X] Lista de Accesos Invertida
 - [ ] Reloj interno
 - [ ] Pausar/Reanudar simulación
 - [ ] Manejo de procesos
