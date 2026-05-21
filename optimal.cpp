@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <string>
 #include "include/reversed_access_list.h"
@@ -30,6 +31,28 @@ enum class Algorithms {
 struct command{
     std::string name;
     std::vector<int> params;
+
+    void print(){
+	std::cout << "Command: " << name << '\n';
+	std::cout << "Params: ";
+
+	for(int i = 0; i < params.size(); ++i)
+	    std::cout << params.at(i) << ' ';
+	std::cout << '\n' << std::endl;
+    }
+};
+
+
+struct page{
+    int pageId;
+    int ptrId;
+    int size;
+
+    page(int page = 0, int ptr = 0, int page_size = 0) : pageId(page), ptrId(ptr), size(page_size) {}
+
+    void print(){
+	std::cout << ptrId << ' ';
+    }
 };
 
 struct symbol_entry{
@@ -41,21 +64,55 @@ struct symbol_entry{
     int dAddr;
     int loadedT;
     int mark;
+    int size;
 
-    symbol_entry(int page, int process = 1) : pageId(page), pId(process) {}
+    symbol_entry(int page, int process, bool load, int ptr, int page_size) : pageId(page), pId(process),
+			loaded(load), lAddr(ptr), mAddr(), dAddr(), loadedT(), mark(), size(page_size) {}
+
 };
 
 struct symbol_table{
     std::vector<symbol_entry> table;
-};
 
-struct page{
-    int size = PAGE_SIZE;
+    std::vector<page> lookup_pages(int ptr){
+	std::vector<page> result;
+	for(int i = 0; i < table.size(); ++i){
+	    if(table[i].lAddr == ptr){
+		page new_page(table[i].pageId, table[i].lAddr, table[i].size);
+	    	result.push_back(new_page);
+	    }
+	}
+	return result;
+    }
+
+    void print(){
+	std::cout << "PageId\t| PId\t| Loaded \t| L-Addr \t| M-Addr \t| D-Addr \t| LoadedT \t| Mark \n";
+
+	for(int i = 0; i < table.size(); ++i){
+	    std::cout << table[i].pageId << "	| "
+			<< table[i].pId << "	| "
+			<< table[i].loaded << " \t\t| "
+			<< table[i].lAddr << "\t\t| "
+			<< table[i].mAddr << "\t\t| "
+			<< table[i].dAddr << "\t\t| "
+			<< table[i].loadedT << "\t\t| "
+			<< table[i].mark << '\n';
+	}
+	std::cout << std::endl;
+    }
 };
 
 struct RAM{
     page memory[RAM_PAGES];
     int current_size;
+
+    void print(){
+	std::cout << "RAM = ";
+	for(int i = 0; i < current_size; ++i)
+	    memory[i].print();
+	std::cout << '\n' << std::endl;
+
+    }
 };
 
 // ==== OPTIMAL VARIABLES ====
@@ -63,60 +120,85 @@ struct RAM{
 RAM optimal_RAM;
 symbol_table optimal_table;
 access_list<int> optimal_index;
-int page_counter = 0;
+
+//ptr(1)...
+int ptr_counter = 1;
+int access_counter = 0;
 
 // ===== FILL THE REVERSED ACCESS LIST =====
-//Asumamos que todos los punteros entran en una pagina :)
-//Parámetros "harcoded"
 
-void access_page(int key, int value){
-    optimal_index.push(key, value);
-    page_counter++;
+void access_page(int key){
+    optimal_index.push(key, access_counter++);
 }
 
 void fill_optimal(command& cmd){
-    int some_page = (page_counter % 3) + 1;
-
-    if(cmd.name == "new" || cmd.name == "use"){
-	access_page(some_page, page_counter);
+    if(cmd.name == "new"){
+	access_page(ptr_counter);
+	ptr_counter++;
+    }
+    if(cmd.name == "use"){
+	access_page(cmd.params[0]);
     }
 }
 
 // ===== ALGORITHM EXECUTION  =====
 //Depende del algoritmo...
-//Asumamos que todos los punteros entran en una pagina :)
 //WIP
+
+void insert_ptr(int ptr){
+    std::vector<page> pages = optimal_table.lookup_pages(ptr);
+
+    for(int i = 0; i < pages.size(); ++i){
+	optimal_RAM.memory[optimal_RAM.current_size++] = pages[i];
+    }
+}
+
 void use_ptr(command& cmd){
-   page new_page;
-   optimal_RAM.memory[optimal_RAM.current_size++];
+    insert_ptr(cmd.params[0]);
 }
 
 void create_ptr(command& cmd){
-    int table_size = optimal_table.table.size();
-    symbol_entry new_ptr(table_size + 1);
-    optimal_table.table.push_back(new_ptr);
+    int page_amount = (cmd.params[1] / PAGE_SIZE) + 1;
 
-    use_ptr(cmd);
+    for(int i = 0; i < page_amount; ++i){
+	symbol_entry new_ptr(optimal_table.table.size() + 1, cmd.params[0], true, ptr_counter, cmd.params[1]);
+	optimal_table.table.push_back(new_ptr);
+    }
+
+    insert_ptr(ptr_counter);
+    ptr_counter++;
 }
 
 // ===== COMMANDS LOGIC =====
 
 Status execute_command(command& next_cmd){
     if(next_cmd.name == "new"){
-	std::cout << "Hay un new" << std::endl;
 	create_ptr(next_cmd);
     } else if(next_cmd.name == "use"){
-	std::cout << "Hay un use" << std::endl;
 	use_ptr(next_cmd);
     } else if(next_cmd.name == "delete")
-	std::cout << "Hay un delete" << std::endl;
+	std::cout << std::endl;
     else if(next_cmd.name == "kill")
-	std::cout << "Hay un kill" << std::endl;
+	std::cout << std::endl;
     else {
 	std::cerr << "Comando no identificado" << std::endl;
 	return Status::SYNTAXERROR;
     }
     return Status::OK;
+}
+
+std::vector<int> parse_params(const std::string& line){
+    std::vector<int> result;
+    std::string cleaned;
+
+    std::stringstream stream(line);
+    std::string param;
+
+    while (std::getline(stream, param, ',')) {
+        result.push_back(std::stoi(param));
+    }
+
+    return result;
 }
 
 Status parse_line(const std::string& line, command& new_command){
@@ -128,8 +210,13 @@ Status parse_line(const std::string& line, command& new_command){
 
     new_command.name = line.substr(0, open);
 
-    //Parse parameters
-    //parse_parameters()
+    std::string params = line.substr(open+1, close-1);
+    new_command.params = parse_params(params);
+
+    //Prints
+    std::cout << "Original Line: " << line << std::endl;
+    new_command.print();
+
     return Status::OK;
 }
 
@@ -168,9 +255,10 @@ void read_file(std::ifstream& f){
         //validate_command()
 
         fill_optimal(new_command);
-
         size++;
     }
+    ptr_counter = 1;
+
 
 }
 
@@ -197,16 +285,15 @@ Status open_file(const std::string& input_file) {
 // ==== TEST?? ====
 
 void test(){
-    optimal_index.print_list();
+    optimal_index.print();
     std::cout << "pop in page 1 = " << optimal_index.pop(1) << std::endl;
 
-    optimal_index.print_list();
+    optimal_index.print();
     std::cout << "farthest page (page name) = " << optimal_index.lowest_element() << std::endl;
-    optimal_index.print_list();
-
+    optimal_index.print();
 
     std::cout << "pop in page 2 = " << optimal_index.pop(2) << std::endl;
-    optimal_index.print_list();
+    optimal_index.print();
 
 }
 
@@ -221,7 +308,11 @@ int main(int argc, char **argv) {
     if (open_file(argv[1]) == Status::FILERROR)
 	return 1;
 
-    test();
+    optimal_index.print();
+    optimal_table.print();
+    optimal_RAM.print();
+
+    //test();
 
     return 0;
 }

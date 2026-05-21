@@ -1,10 +1,10 @@
-#ifndef REVERSED_ACCESS_LIST_H
-#define REVERSED_ACCESS_LIST_H
-
 #include <iostream>
 #include <vector>
 #include <unordered_map>
 #include <climits>
+
+#ifndef REVERSED_ACCESS_LIST_H
+#define REVERSED_ACCESS_LIST_H
 
 //Por si acaso :p
 template <typename E>
@@ -40,7 +40,7 @@ struct access_list {
 	return page;
     }
 
-    void print_list(){
+    void print(){
 	std::cout << "Lista de accesos\n";
 	for (const auto& [key, value] : inverted_index){
     	    std::cout << "Pagina " << key << " = ";
@@ -49,6 +49,7 @@ struct access_list {
 	    }
 	    std::cout << '\n';
     	}
+	std::cout << std::endl;
     }
 };
 
