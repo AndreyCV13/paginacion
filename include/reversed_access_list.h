@@ -2,6 +2,7 @@
 #include <vector>
 #include <unordered_map>
 #include <climits>
+#include <set>
 
 #ifndef REVERSED_ACCESS_LIST_H
 #define REVERSED_ACCESS_LIST_H
@@ -26,17 +27,17 @@ struct access_list {
 	return first;
     }
 
-    int lowest_element(){
+    int farthest_element(std::set<E>& pages){
 	int highest_element = -1;
 	E page;
-	for (const auto& [key, value] : inverted_index){
-	     if (value.size() == 0) continue;
-	     if (value.front() > highest_element){
-		highest_element = value.front();
-	    	page = key;
+	for (auto& ptr : pages){
+	     if (inverted_index[ptr].size() == 0) return ptr;
+	     if (inverted_index[ptr].front() > highest_element){
+		highest_element = inverted_index[ptr].front();
+	    	page = ptr;
 	     }
 	}
-	pop(page);
+	//pop(page);
 	return page;
     }
 

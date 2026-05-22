@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <unordered_map>
+#include <set>
 #include <string>
 #include "include/reversed_access_list.h"
 
@@ -12,6 +14,10 @@
 #define RAM_PAGES 100
 #define RAM_SIZE (PAGE_SIZE * 100)
 
+
+// ==== GLOBAL VARIABLES ====
+int global_timer = 0;
+int disk_counter = 1;
 
 // ===== DEFINITIONS =====
 enum class Status {
@@ -69,34 +75,70 @@ struct symbol_entry{
     symbol_entry(int page, int process, bool load, int ptr, int page_size) : pageId(page), pId(process),
 			loaded(load), lAddr(ptr), mAddr(), dAddr(), loadedT(), mark(), size(page_size) {}
 
+    void print(){
+	std::cout << pageId << "	| "
+		<< pId << "	| "
+		<< loaded << " \t\t| "
+		<< lAddr << "\t\t| "
+		<< mAddr << "\t\t| "
+		<< dAddr << "\t\t| "
+		<< loadedT << "\t\t| "
+		<< mark << '\n';
+
+    }
 };
 
 struct symbol_table{
-    std::vector<symbol_entry> table;
+    //std::vector<symbol_entry> table;
+    std::unordered_map<int, std::vector<symbol_entry>> table;
 
-    std::vector<page> lookup_pages(int ptr){
-	std::vector<page> result;
-	for(int i = 0; i < table.size(); ++i){
-	    if(table[i].lAddr == ptr){
-		page new_page(table[i].pageId, table[i].lAddr, table[i].size);
-	    	result.push_back(new_page);
-	    }
+
+    void push(symbol_entry new_entry){
+	//table.push_back(new_entry);
+	table[new_entry.lAddr].push_back(new_entry);
+    }
+
+    std::vector<symbol_entry>& lookup_ptr(int ptr){
+	return table[ptr];
+    }
+
+    symbol_entry& lookup_pageId( int pageId, int ptr){
+	std::vector<symbol_entry>& pages = lookup_ptr(ptr);
+	for(int i = 0; i < pages.size(); ++i){
+	    if(pages.at(i).pageId == pageId)
+		return pages.at(i);
 	}
-	return result;
+	throw std::runtime_error("pageId no encontrado");
+    }
+
+    bool check_loaded( int pageId, int ptr){
+	symbol_entry& entry = lookup_pageId(ptr, pageId);
+	return entry.loaded;
+    }
+
+    void inserted(int pageId, int ptr, int mAddr){
+	symbol_entry& entry = lookup_pageId(ptr, pageId);
+	entry.loaded = true;
+	entry.mAddr = mAddr;
+	entry.dAddr = 0;
+	entry.loadedT = global_timer;
+    }
+
+    void removed(int pageId, int ptr){
+	symbol_entry& entry = lookup_pageId(ptr, pageId);
+	entry.loaded = false;
+	entry.mAddr = 0;
+	entry.dAddr = disk_counter++;
+	entry.loadedT = -1;
     }
 
     void print(){
 	std::cout << "PageId\t| PId\t| Loaded \t| L-Addr \t| M-Addr \t| D-Addr \t| LoadedT \t| Mark \n";
 
-	for(int i = 0; i < table.size(); ++i){
-	    std::cout << table[i].pageId << "	| "
-			<< table[i].pId << "	| "
-			<< table[i].loaded << " \t\t| "
-			<< table[i].lAddr << "\t\t| "
-			<< table[i].mAddr << "\t\t| "
-			<< table[i].dAddr << "\t\t| "
-			<< table[i].loadedT << "\t\t| "
-			<< table[i].mark << '\n';
+	for(int i = 1; i <= table.size(); ++i){
+	    for(int j = 0; j < table.at(i).size(); ++j){
+	    	table.at(i).at(j).print();
+	    }
 	}
 	std::cout << std::endl;
     }
@@ -104,7 +146,25 @@ struct symbol_table{
 
 struct RAM{
     page memory[RAM_PAGES];
+    //Un set no es realmente necesasrio?
+    std::set<int> unique_pages;
     int current_size;
+
+    void push(page& new_page){
+	memory[current_size++] = new_page;
+    }
+
+    void push(page& new_page, int position){
+	memory[position] = new_page;
+	current_size++;
+    }
+
+    bool check(int ptr){
+	for(int i = 0; i < current_size; ++i){
+	    if(memory[i].ptrId == ptr) return true;
+	}
+	return false;
+    }
 
     void print(){
 	std::cout << "RAM = ";
@@ -127,30 +187,85 @@ int access_counter = 0;
 
 // ===== FILL THE REVERSED ACCESS LIST =====
 
-void access_page(int key){
-    optimal_index.push(key, access_counter++);
+void access_page(int key, int pages){
+    for(int i = 0; i < pages; ++i)
+    	optimal_index.push(key, access_counter++);
 }
 
 void fill_optimal(command& cmd){
     if(cmd.name == "new"){
-	access_page(ptr_counter);
+	int pages = (cmd.params[1] / PAGE_SIZE) + 1;
+	access_page(ptr_counter, pages);
 	ptr_counter++;
     }
     if(cmd.name == "use"){
-	access_page(cmd.params[0]);
+	access_page(cmd.params[0], 0);
     }
 }
 
 // ===== ALGORITHM EXECUTION  =====
 //Depende del algoritmo...
 //WIP
+void inserted_RAM(int pageId, int ptr, int mAddr){
+    optimal_index.pop(ptr);
+    optimal_RAM.unique_pages.insert(ptr);
+    optimal_table.inserted(pageId, ptr, mAddr);
+}
 
-void insert_ptr(int ptr){
-    std::vector<page> pages = optimal_table.lookup_pages(ptr);
+void removed_RAM(int pageId, int ptr){
+    if(!optimal_RAM.check(ptr))
+	optimal_RAM.unique_pages.erase(ptr);
+    optimal_table.removed(pageId, ptr);
+}
 
-    for(int i = 0; i < pages.size(); ++i){
-	optimal_RAM.memory[optimal_RAM.current_size++] = pages[i];
+int optimal_replacement(page& new_page, int ptr){
+    if (optimal_RAM.current_size < PAGE_SIZE){
+	int return_value = optimal_RAM.current_size;
+	optimal_RAM.push(new_page);
+	return (optimal_RAM.current_size - 1);
     }
+
+    std::set<int>& s = optimal_RAM.unique_pages;
+    //if the page is alredy in RAM, it must be deleted temporarily
+    if(s.count(ptr) == 1)
+	s.erase(ptr);
+
+    int replacement = optimal_index.farthest_element(s);
+    page& page_to_remove = optimal_RAM.memory[replacement];
+
+    removed_RAM(page_to_remove.pageId, page_to_remove.ptrId);
+    optimal_RAM.push(new_page, replacement);
+
+    return replacement;
+}
+
+void check_RAM(std::vector<page>& pages, int ptr){
+    for(int i = 0; i < pages.size(); ++i){
+	int pageId = pages.at(i).pageId;
+	if(optimal_table.check_loaded(ptr, pageId)){
+	    std::cout << "Hit!\n" << std::endl;
+	    global_timer++;
+	} else{
+	    std::cout << "Miss!\n" << std::endl;
+	    global_timer += 5;
+	    int mAddr = optimal_replacement(pages.at(i), ptr);
+	    inserted_RAM(pages.at(i).pageId, ptr, mAddr);
+	}
+    }
+}
+
+//Si no encuentra ptr, simplemente lo ignora
+void insert_ptr(int ptr){
+    std::vector<symbol_entry>& entries = optimal_table.lookup_ptr(ptr);
+    std::vector<page> pages;
+    for(int i = 0; i < entries.size(); ++i){
+	int pageId = entries[i].pageId;
+	int pageSize = entries[i].size;
+	page new_page(pageId, ptr, pageSize);
+	pages.push_back(new_page);
+
+    }
+    check_RAM(pages, ptr);
 }
 
 void use_ptr(command& cmd){
@@ -161,8 +276,9 @@ void create_ptr(command& cmd){
     int page_amount = (cmd.params[1] / PAGE_SIZE) + 1;
 
     for(int i = 0; i < page_amount; ++i){
-	symbol_entry new_ptr(optimal_table.table.size() + 1, cmd.params[0], true, ptr_counter, cmd.params[1]);
-	optimal_table.table.push_back(new_ptr);
+	symbol_entry new_ptr(optimal_table.table.size() + 1, cmd.params[0], false, ptr_counter, cmd.params[1]);
+	optimal_table.push(new_ptr);
+	//optimal_table.table.push_back(new_ptr);
     }
 
     insert_ptr(ptr_counter);
@@ -275,6 +391,7 @@ Status open_file(const std::string& input_file) {
     file.clear();
     file.seekg(0, std::ios::beg);
 
+    std::cout << "Ejecución del programa! \n\n\n" << std::endl;
     execute_program(file);
 
     file.close();
@@ -288,8 +405,6 @@ void test(){
     optimal_index.print();
     std::cout << "pop in page 1 = " << optimal_index.pop(1) << std::endl;
 
-    optimal_index.print();
-    std::cout << "farthest page (page name) = " << optimal_index.lowest_element() << std::endl;
     optimal_index.print();
 
     std::cout << "pop in page 2 = " << optimal_index.pop(2) << std::endl;
