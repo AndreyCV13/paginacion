@@ -27,10 +27,10 @@ struct access_list {
 	return first;
     }
 
-    int farthest_element(std::set<E>& pages){
+    int farthest_element(std::set<E>& ptrs){
 	int highest_element = -1;
 	E page;
-	for (auto& ptr : pages){
+	for (auto& ptr : ptrs){
 	     if (inverted_index[ptr].size() == 0) return ptr;
 	     if (inverted_index[ptr].front() > highest_element){
 		highest_element = inverted_index[ptr].front();

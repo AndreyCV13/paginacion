@@ -1,1 +1,6 @@
 .clang-format
+.swp
+/objects
+instructions.txt
+testFile.txt
+*.swp
