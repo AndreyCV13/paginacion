@@ -38,8 +38,8 @@ int main() {
     int totalInstructions = 0;
 
     // Propociones para las operaciones
-    int targetNew = (N * 30) / 100;
-    int targetUse = (N * 40) / 100;
+    int targetNew = (N * 10) / 100;
+    int targetUse = (N * 60) / 100;
     int targetDelete = (N * 20) / 100;
     int TargetKill = (N * 10) / 100;
 
