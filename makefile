@@ -9,7 +9,7 @@ all: $(TARGET)
 
 #Ejecutable
 $(TARGET): $(OBJ)
-	$(compiler) $(OBJ) -o $(TARGET)
+	$(compiler) $(OBJ) -o $(TARGET) -lncurses
 
 #objetos
 $(OBJ): $(SRC)
