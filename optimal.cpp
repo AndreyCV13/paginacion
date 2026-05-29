@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <unordered_set>
 #include <string>
+#include <climits>
+#include <ncurses.h>
+#include <unistd.h>
 #include "include/reversed_access_list.h"
 
 // ===== CONSTANTS =====
@@ -19,14 +22,13 @@
 #define MISS_TIME 5
 
 // ==== GLOBAL VARIABLES ====
-int global_timer = 0;
 int disk_counter = 1;
 
 // ===== DEFINITIONS =====
 enum class Status {
-    OK,
-    FILERROR,
-    SYNTAXERROR
+    SUCCESS,
+    FILE_ERROR,
+    SYNTAX_ERROR
 };
 
 enum class Algorithms {
@@ -47,17 +49,7 @@ struct statistics{
 struct command{
     std::string name;
     std::vector<int> params;
-
-    void print(){
-	std::cout << "Command: " << name << '\n';
-	std::cout << "Params: ";
-
-	for(int i = 0; i < params.size(); ++i)
-	    std::cout << params.at(i) << ' ';
-	std::cout << '\n' << std::endl;
-    }
 };
-
 
 struct page{
     int pageId;
@@ -65,10 +57,6 @@ struct page{
     int size;
 
     page(int page = -1, int ptr = -1, int page_size = 0) : pageId(page), ptrId(ptr), size(page_size) {}
-
-    void print(){
-	std::cout << ptrId << ' ';
-    }
 };
 
 struct symbol_entry{
@@ -100,10 +88,8 @@ struct symbol_entry{
 };
 
 struct symbol_table{
-    //std::vector<symbol_entry> table;
     std::unordered_map<int, std::vector<symbol_entry>> table;
-    int current_size;
-
+    int current_size = 0;
 
     void push(symbol_entry new_entry){
     	table[new_entry.lAddr].push_back(new_entry);
@@ -128,7 +114,6 @@ struct symbol_table{
 
     int first_mAddr(int ptr){
         auto& pages = lookup_ptr(ptr);
-
         for(const auto& page : pages){
             if(page.loaded) return page.mAddr;
         }
@@ -154,28 +139,17 @@ struct symbol_table{
         return entry.mark;
     }
 
-    void get_statistics(statistics& new_statistics){
-        for(int i = 1; i <= table.size(); ++i){
-            for(int j = 0; j < table.at(i).size(); ++j){
-                if (table.at(i).at(j).loaded)
-                    new_statistics.loaded_pages++;
-                else
-                    new_statistics.unloaded_pages++;
-            }
-        }
-    }
-
     void update_mark(int pageId, int ptr, int mark){
         symbol_entry& entry = lookup_pageId(pageId, ptr);
         entry.mark = mark;
     }
 
-    void inserted(int pageId, int ptr, int mAddr, int mark){
+    void inserted(int pageId, int ptr, int mAddr, int mark, int current_time){
         symbol_entry& entry = lookup_pageId(pageId, ptr);
         entry.loaded = true;
     	entry.mAddr = mAddr;
 	    entry.dAddr = 0;
-	    entry.loadedT = global_timer;
+	    entry.loadedT = current_time;
         entry.mark = mark;
     }
 
@@ -202,15 +176,13 @@ struct symbol_table{
 struct RAM{
     page memory[RAM_PAGES];
     std::set<int> unique_pages;
-    int current_size;
+    int current_size = 0;
 
     RAM() = default;
 
     void push(page& new_page, int position){
 	    memory[position] = new_page;
-        
-        if (current_size < RAM_PAGES)
-            current_size++;
+        if (current_size < RAM_PAGES) current_size++;
     }
 
     void pop(int position){
@@ -221,17 +193,6 @@ struct RAM{
 
     bool is_full(){
         return current_size >= RAM_PAGES;
-    }
-
-    void print(){
-        std::cout << "RAM = ";
-        for(int i = 0; i < RAM_PAGES; ++i)
-            memory[i].print();
-        std::cout << "\nUniques = ";
-        for (const auto& element : unique_pages) {
-                std::cout << element << " ";
-        }
-        std::cout << "\nSize  = " << current_size << '\n' << std::endl;
     }
 };
 
@@ -247,9 +208,9 @@ struct MMU{
     float ram_porcentage = 0;
     int vram_size = 0;
     float vram_porcentage = 0;
-    float trashing = 0;
+    int trashing = 0;
     float trashing_porcentage = 0;
-    float fragmentation = 0;
+    int fragmentation = 0;
     int loaded_pages = 0;
     int unloaded_pages = 0;
 
@@ -266,7 +227,7 @@ struct MMU{
             page& new_page = MMU_RAM.memory[i];
             int pageId = new_page.pageId;
             int ptrId = new_page.ptrId;
-            if (pageId == -1 || ptrId == -1)
+            if (pageId == 0 || pageId == -1 || ptrId == -1)
                 continue;
 
             unique_process.insert(table.get_pId(pageId, ptrId));
@@ -277,11 +238,11 @@ struct MMU{
         process_counter = unique_process.size();
         loaded_pages = MMU_RAM.current_size;
         unloaded_pages = table.current_size - loaded_pages;
-        ram_size = MMU_RAM.current_size * PAGE_SIZE;
+        ram_size = MMU_RAM.current_size * 4;
         ram_porcentage = (float)MMU_RAM.current_size / RAM_PAGES * 100.0f;
-        vram_size = unloaded_pages * PAGE_SIZE;
-        if (vram_size != 0)
-            vram_porcentage = (float)ram_size / vram_size * 100.0f;
+        vram_size = unloaded_pages * 4;
+        if (ram_size != 0)
+            vram_porcentage = (float) vram_size / ram_size * 100.0f;
         else
             vram_porcentage = 0;
         trashing = miss_counter * MISS_TIME;
@@ -293,10 +254,6 @@ struct MMU{
 
     void print(bool table_flag = true){
         std::cout << "\nALG - " << AlgorithmStrings[(int) algorithm] << std::endl;
-        if(table_flag){
-            table.print();
-            MMU_RAM.print();
-        }
         std::cout << "MISS COUNTER = " << miss_counter << std::endl;
         std::cout << "PROCESS COUNTER = " << process_counter << std::endl;
         std::cout << "VRAM SIZE = " << vram_size << std::endl;
@@ -325,7 +282,6 @@ std::vector<int> FIFO_queue;
 int LRU_pointer;
 
 // ===== FILL THE REVERSED ACCESS LIST =====
-
 void access_page(int key, int pages){
     for(int i = 0; i < pages; ++i)
     	optimal_index.push(key, access_counter++);
@@ -334,8 +290,6 @@ void access_page(int key, int pages){
 void fill_optimal(command& cmd){
     if(cmd.name == "new"){
         int pages = std::ceil(cmd.params[1] / (float) PAGE_SIZE);
-        std::cout << "Cantidad =" << pages << std::endl;
-
         dictionary[dict_counter] = pages;
         access_page(dict_counter, pages);
         dict_counter++;
@@ -349,7 +303,7 @@ void fill_optimal(command& cmd){
 // ===== ALGORITHM EXECUTION  =====
 
 void inserted_RAM(int pageId, int ptr, int mAddr, MMU& selected, int mark = 0){
-    selected.table.inserted(pageId, ptr, mAddr, mark);
+    selected.table.inserted(pageId, ptr, mAddr, mark, selected.simulation_time);
 }
 
 void removed_RAM(int pageId, int ptr, int mAddr, MMU& selected){
@@ -403,52 +357,29 @@ int LRU_replacement(page& new_page, MMU& selected){
 
     for(int i = 0; i < RAM_PAGES; i++){
         page& candidate = selected.MMU_RAM.memory[i];
-        int pageId = candidate.pageId;
-        int ptrId = candidate.ptrId;
-        int mark = selected.table.get_mark(pageId, ptrId); 
+        int mark = selected.table.get_mark(candidate.pageId, candidate.ptrId); 
         if(mark < smallest_mark){
             smallest_mark = mark;
             mAddr = i;
         }
     }
-
     page& page_to_remove = selected.MMU_RAM.memory[mAddr];
     removed_RAM(page_to_remove.pageId, page_to_remove.ptrId, mAddr, selected);
     return mAddr;
 }
 
 int LFU_replacement(page& new_page, MMU& selected){
-    int smallest_mark = INT_MAX;
-    int mAddr = -1;
-
-    for(int i = 0; i < RAM_PAGES; i++){
-        page& candidate = selected.MMU_RAM.memory[i];
-        int pageId = candidate.pageId;
-        int ptrId = candidate.ptrId;
-        int mark = selected.table.get_mark(pageId, ptrId); 
-        if(mark < smallest_mark){
-            smallest_mark = mark;
-            mAddr = i;
-        }
-    }
-
-    page& page_to_remove = selected.MMU_RAM.memory[mAddr];
-    removed_RAM(page_to_remove.pageId, page_to_remove.ptrId, mAddr, selected);
-    return mAddr;
+    return LRU_replacement(new_page, selected); 
 }
 
 int optimal_replacement(page& new_page, MMU& selected){
 
     std::set<int>& s = selected.MMU_RAM.unique_pages;
     int ptr = new_page.ptrId;
-
-    //This is the ptr, not the index
     int replacement = optimal_index.farthest_element(s);
     int mAddr = selected.table.first_mAddr(replacement);
 
-    //Update MMU and unique set
     page page_to_remove = selected.MMU_RAM.memory[mAddr];
-
     removed_RAM(page_to_remove.pageId, page_to_remove.ptrId, mAddr, selected);
     if(selected.table.has_ptr_loaded(page_to_remove.ptrId) == false)
         s.erase(page_to_remove.ptrId);
@@ -458,30 +389,19 @@ int optimal_replacement(page& new_page, MMU& selected){
 
 int algorithm_router(page& new_page, MMU& selected){
     switch(selected.algorithm){
-        case Algorithms::FIFO:
-            return FIFO_replacement(new_page, selected);
-        case Algorithms::SC:
-            return SC_replacement(new_page, selected);
-        case Algorithms::LRU:
-            return LRU_replacement(new_page, selected);
-        case Algorithms::LFU:
-            return LFU_replacement(new_page, selected);
-        default:
-            return optimal_replacement(new_page, selected);
+        case Algorithms::FIFO: return FIFO_replacement(new_page, selected);
+        case Algorithms::SC: return SC_replacement(new_page, selected);
+        case Algorithms::LRU: return LRU_replacement(new_page, selected);
+        case Algorithms::LFU: return LFU_replacement(new_page, selected);
+        default: return optimal_replacement(new_page, selected);
     }
-
-    return -1;
 }
 
-bool check_optimal(MMU& selected){
-    return selected.algorithm == Algorithms::OPTIMAL;
-}
+bool check_optimal(MMU& selected) { return selected.algorithm == Algorithms::OPTIMAL; }
 
 int basic_miss(page& new_page, MMU& selected){
     for(int i = 0; i < RAM_PAGES; ++i){
-        if(selected.MMU_RAM.memory[i].ptrId == -1){
-            return i;            
-        }
+        if(selected.MMU_RAM.memory[i].ptrId == -1) return i;            
     }
 
     return -1;
@@ -492,24 +412,13 @@ void replace_page(page& new_page, MMU& selected){
     int ptr = new_page.ptrId;
     int mark = 0;
 
-     std::cout << "Hi1 " << std::endl; 
-    if(!selected.MMU_RAM.is_full()) 
-        mAddr = basic_miss(new_page, selected);
-    else 
-        mAddr = algorithm_router(new_page, selected);
+    if(!selected.MMU_RAM.is_full()) mAddr = basic_miss(new_page, selected);
+    else mAddr = algorithm_router(new_page, selected);
 
-    if(mAddr == -1) {
-        return;
-    }
+    if(mAddr == -1) return;
 
-    std::cout << "mAddr = " << mAddr << std::endl; 
-    
-    //Set marks
-    if(selected.algorithm == Algorithms::LRU){
-        mark = LRU_pointer++;
-    } else if(selected.algorithm == Algorithms::LFU){
-        mark = 1;
-    }
+    if(selected.algorithm == Algorithms::LRU) mark = LRU_pointer++;
+    else if(selected.algorithm == Algorithms::LFU) mark = 1;
 
     selected.MMU_RAM.push(new_page, mAddr);
     inserted_RAM(new_page.pageId, ptr, mAddr, selected, mark);
@@ -525,19 +434,10 @@ void replace_page(page& new_page, MMU& selected){
     }
 }
 
-//Updates something if necessary
 void update_hit(page& new_page, MMU& selected){
-
-    //Consume an indexe if OPTIMAL
-    if(check_optimal(selected)){
-        optimal_index.pop(new_page.ptrId);
-    }
-    if(selected.algorithm == Algorithms::SC)
-        selected.table.update_mark(new_page.pageId, new_page.ptrId, 1);
-
-    if(selected.algorithm == Algorithms::LRU)
-        selected.table.update_mark(new_page.pageId, new_page.ptrId, LRU_pointer++);
-
+    if(check_optimal(selected)) optimal_index.pop(new_page.ptrId);
+    if(selected.algorithm == Algorithms::SC) selected.table.update_mark(new_page.pageId, new_page.ptrId, 1);
+    if(selected.algorithm == Algorithms::LRU) selected.table.update_mark(new_page.pageId, new_page.ptrId, LRU_pointer++);
     if(selected.algorithm == Algorithms::LFU){
         int current_mark = selected.table.get_mark(new_page.pageId, new_page.ptrId);
         selected.table.update_mark(new_page.pageId, new_page.ptrId, current_mark + 1);
@@ -545,15 +445,12 @@ void update_hit(page& new_page, MMU& selected){
 }
 
 void check_RAM(std::vector<page>& pages, int ptr, MMU& selected){
-    for(int i = 0; i < pages.size(); ++i){
+    for(size_t i = 0; i < pages.size(); ++i){
 	    page& new_page = pages.at(i);
         if(selected.table.has_page_loaded(new_page.pageId, ptr)){
-            std::cout << "Hit!\n" << std::endl;
             selected.simulation_time++;
             update_hit(new_page, selected);
-            
-        } else{
-            std::cout << "Miss!\n" << std::endl;
+        } else {
             selected.miss_counter++;
             selected.simulation_time += MISS_TIME;
             replace_page(new_page, selected);        
@@ -561,8 +458,18 @@ void check_RAM(std::vector<page>& pages, int ptr, MMU& selected){
     }
 }
 
+/*
+void remove_fragmentation(int ptr, MMU& selected) {
+    if (selected.ptr_frag.count(ptr)) {
+        selected.fragmentation -= selected.ptr_frag[ptr];
+        selected.ptr_frag.erase(ptr);
+        selected.ptr_to_pid.erase(ptr);
+    }
+}
+*/
 void delete_pId(command& cmd, MMU& selected){
     int pId = cmd.params[0];
+    
     for(int i = 0; i < RAM_PAGES; ++i){
         page& candidate = selected.MMU_RAM.memory[i];
         if(candidate.pageId == -1 || candidate.ptrId == -1)
@@ -570,33 +477,31 @@ void delete_pId(command& cmd, MMU& selected){
         if(selected.table.get_pId(candidate.pageId, candidate.ptrId) == pId)
             removed_RAM(candidate.pageId, candidate.ptrId, i, selected);
     }
+    
+    /*
+    std::vector<int> to_delete;
+    for (auto const& [ptr, pid] : selected.ptr_to_pid) {
+        if (pid == pId) to_delete.push_back(ptr);
+    }
+    for (int ptr : to_delete) remove_fragmentation(ptr, selected);
+    */
 }
 
 void delete_ptr(command& cmd, MMU& selected){
     int ptr = cmd.params[0];
     for(int i = 0; i < RAM_PAGES; ++i){
         page& candidate = selected.MMU_RAM.memory[i];
-        if(candidate.ptrId == ptr){
-            removed_RAM(candidate.pageId, candidate.ptrId, i, selected);      
-        }
+        if(candidate.ptrId == ptr) removed_RAM(candidate.pageId, candidate.ptrId, i, selected);      
     }
+    //remove_fragmentation(ptr, selected);
 }
 
-//Si no encuentra ptr, simplemente lo ignora
-//Se podrría simplemente cambiar los datos de RAM, mejor perfomance, pero meh
 void load_ptr(int ptr, MMU& selected){
-    //Debug
-    //optimal_index.print();
-    //selected.MMU_RAM.print();
-
+    if (selected.table.table.find(ptr) == selected.table.table.end()) return;
     std::vector<symbol_entry>& entries = selected.table.lookup_ptr(ptr);
     std::vector<page> pages;
-
-    for(int i = 0; i < entries.size(); ++i){
-        int pageId = entries[i].pageId;
-        int pageSize = entries[i].size;
-        page new_page(pageId, ptr, pageSize);
-        pages.push_back(new_page);
+    for(size_t i = 0; i < entries.size(); ++i){
+        pages.push_back(page(entries[i].pageId, ptr, entries[i].size));
     }
     check_RAM(pages, ptr, selected);
 }
@@ -617,15 +522,12 @@ void create_ptr(command& cmd, MMU& selected){
         selected.table.push(new_ptr);
         remaining_size -= current_page_size;
     }
-
     load_ptr(selected.ptr_counter, selected);
     selected.ptr_counter++;
 }
 
 // ===== COMMANDS LOGIC =====
-
 Status execute_command(command& next_cmd, MMU& selected){
-    selected.update_statistics();
     if(next_cmd.name == "new"){
 	    create_ptr(next_cmd, selected);
     } else if(next_cmd.name == "use"){
@@ -636,126 +538,172 @@ Status execute_command(command& next_cmd, MMU& selected){
 	    delete_pId(next_cmd, selected);
     else {
 	    std::cerr << "Comando no identificado" << std::endl;
-	    return Status::SYNTAXERROR;
+	    return Status::SYNTAX_ERROR;
     }
-    //selected.update_statistics();
-    return Status::OK;
+    selected.update_statistics();
+    return Status::SUCCESS;
 }
 
 std::vector<int> parse_params(const std::string& line){
     std::vector<int> result;
-    std::string cleaned;
-
     std::stringstream stream(line);
     std::string param;
-
-    while (std::getline(stream, param, ',')) {
-        result.push_back(std::stoi(param));
-    }
-
+    while (std::getline(stream, param, ',')) result.push_back(std::stoi(param));
     return result;
 }
 
 Status parse_line(const std::string& line, command& new_command){
     size_t open = line.find('(');
     size_t close = line.find(')');
-
-    if(open == std::string::npos || close == std::string::npos)
-	return Status::SYNTAXERROR;
-
+    if(open == std::string::npos || close == std::string::npos) return Status::SYNTAX_ERROR;
     new_command.name = line.substr(0, open);
-
-    std::string params = line.substr(open+1, close-1);
+    std::string params = line.substr(open+1, close-open-1);
     new_command.params = parse_params(params);
-
-    //Prints
-    std::cout << "Original Line: " << line << std::endl;
-    new_command.print();
-
-    return Status::OK;
+    return Status::SUCCESS;
 }
 
-// ===== FILE LOGIC =====
+// ===== INTERFACE LOGIC (NCURSES) =====
+void draw_mmu_state(MMU& mmu, int start_y, int start_x, std::string title) {
+    attron(COLOR_PAIR(2) | A_BOLD);
+    mvprintw(start_y, start_x, title.c_str());
+    attroff(COLOR_PAIR(2) | A_BOLD);
+
+    mvprintw(start_y + 1, start_x, "PAGE ID | PID | LOADED | L-ADDR | M-ADDR | D-ADDR");
+    int line = 0;
+    
+    for(int i = 0; i < RAM_PAGES; ++i) {
+        if (line > 15) break;
+        page& p = mmu.MMU_RAM.memory[i];
+        if (p.ptrId != -1) {
+            symbol_entry& entry = mmu.table.lookup_pageId(p.pageId, p.ptrId);
+            
+            // Asignación dinámica de color según el PID de forma segura
+            int process_color = 3 + (entry.pId % 6);
+            
+            attron(COLOR_PAIR(process_color));
+            mvprintw(start_y + 2 + line, start_x, "%7d | %3d | %6d | %6d | %6d | %6d",
+                entry.pageId, entry.pId, entry.loaded, entry.lAddr, entry.mAddr, entry.dAddr);
+            attroff(COLOR_PAIR(process_color));
+            
+            line++;
+        }
+    }
+
+    int sy = start_y + 19;
+    mvprintw(sy, start_x, "--- ESTADISTICAS ---");
+    
+    std::set<int> active_pids;
+    //for (auto const& [ptr, pid] : mmu.ptr_to_pid) active_pids.insert(pid);
+    mvprintw(sy + 1, start_x, "Procesos Activos: %lu", mmu.process_counter);
+    mvprintw(sy + 2, start_x, "Sim-Time: %ds", mmu.simulation_time);
+    
+    float ram_pct = (mmu.MMU_RAM.current_size * 4.0) / 400.0 * 100.0;
+    mvprintw(sy + 3, start_x, "RAM: %d KB (%.1f%%)", (mmu.ram_size), mmu.ram_porcentage);
+    
+    int vram_pages = 0;
+    for(size_t i = 1; i <= mmu.table.table.size(); ++i) {
+        if (mmu.table.table.find(i) == mmu.table.table.end()) continue;
+        for(size_t j = 0; j < mmu.table.table[i].size(); ++j) {
+            if (!mmu.table.table[i][j].loaded && mmu.table.table[i][j].dAddr > 0) vram_pages++;
+        }
+    }
+    float vram_kb = vram_pages * 4.0;
+    float vram_pct = (vram_kb / 400.0) * 100.0;
+    mvprintw(sy + 4, start_x, "V-RAM: %.0d KB (%.1f%% RAM)", mmu.vram_size, mmu.vram_porcentage);
+
+    float thrash_pct = mmu.simulation_time == 0 ? 0 : ((float)mmu.trashing / mmu.simulation_time) * 100.0;
+    if (thrash_pct > 50.0) {
+        attron(COLOR_PAIR(1) | A_BOLD);
+        mvprintw(sy + 5, start_x, "Thrashing: %ds (%.1f%%)", mmu.trashing, mmu.trashing_porcentage);
+        attroff(COLOR_PAIR(1) | A_BOLD);
+    } else {
+        mvprintw(sy + 5, start_x, "Thrashing: %ds (%.1f%%)", mmu.trashing, mmu.trashing_porcentage);
+    }
+    mvprintw(sy + 6, start_x, "Fragmentacion: %d B", mmu.fragmentation);
+}
 
 void execute_program(std::ifstream& f){
-    uint64_t size = 0;
+    initscr(); start_color(); cbreak(); noecho(); nodelay(stdscr, TRUE); curs_set(0);
+    init_pair(1, COLOR_RED, COLOR_BLACK);
+    init_pair(2, COLOR_GREEN, COLOR_BLACK);
+
+    // Paleta de colores de fondo de alto contraste para las filas de procesos
+    init_pair(3, COLOR_WHITE, COLOR_RED);       // Proceso grupo 1
+    init_pair(4, COLOR_BLACK, COLOR_GREEN);     // Proceso grupo 2
+    init_pair(5, COLOR_BLACK, COLOR_YELLOW);    // Proceso grupo 3
+    init_pair(6, COLOR_WHITE, COLOR_BLUE);      // Proceso grupo 4
+    init_pair(7, COLOR_WHITE, COLOR_MAGENTA);   // Proceso grupo 5
+    init_pair(8, COLOR_BLACK, COLOR_CYAN);      // Proceso grupo 6
+
     std::string line;
+    bool paused = false;
 
-    while (getline(f, line)) {
-        command new_command;
+    while (true) {
+        int ch = getch();
+        if (ch == 'p' || ch == 'P') paused = !paused;
 
-        if (parse_line(line, new_command) == Status::SYNTAXERROR)
+        if (paused) {
+            attron(A_BOLD);
+            mvprintw(0, 0, "[ SIMULACION PAUSADA - Presione 'p' para reanudar ]");
+            attroff(A_BOLD);
+            refresh();
+            usleep(100000);
             continue;
+        }
 
-        //Validate cmd?? (context)
-        //validate_command()
+        if (getline(f, line)) {
+            command new_command;
+            if (parse_line(line, new_command) == Status::SYNTAX_ERROR) continue;
+            for(size_t i = 0; i < MMUs.size(); ++i) execute_command(new_command, MMUs.at(i));
+        } else {
+            break; 
+        }
+        
+        clear();
+        mvprintw(0, 0, "[ SIMULACION EN CURSO - Presione 'p' para pausar ]");
+        
+        draw_mmu_state(MMUs[0], 2, 2, "MMU-OPT");
+        draw_mmu_state(MMUs[1], 2, 60, std::string("MMU-") + AlgorithmStrings[(int)MMUs[1].algorithm]);
 
-        for(int i = 0; i < MMUs.size(); ++i)
-            execute_command(new_command, MMUs.at(i));
-
-        size++;
+        refresh();
+        sleep(2);
     }
+
+    nodelay(stdscr, FALSE);
+    attron(A_BOLD);
+    mvprintw(32, 2, "[ FIN DE SIMULACION - Presione cualquier tecla para salir ]");
+    attroff(A_BOLD);
+    getch();
+    endwin();
 }
 
 void read_file(std::ifstream& f){
-    uint64_t size = 0;
     std::string line;
-
     while (getline(f, line)) {
         command new_command;
-
-        if (parse_line(line, new_command) == Status::SYNTAXERROR)
-            continue;
-
-        //Validate cmd?? (context)
-        //validate_command()
-
+        if (parse_line(line, new_command) == Status::SYNTAX_ERROR) continue;
         fill_optimal(new_command);
-        size++;
     }
-
-
 }
 
 Status open_file(const std::string& input_file) {
     std::ifstream file(input_file);
     if (!file.is_open()){
-	std::cerr << "Error: Could not open the file." << std::endl;
-	return Status::FILERROR;
+	    std::cerr << "Error: Could not open the file." << std::endl;
+	    return Status::FILE_ERROR;
     }
-
-    //Optimal algorithm
     read_file(file);
-
-
     file.clear();
     file.seekg(0, std::ios::beg);
-
-    std::cout << "Ejecución del programa! \n\n\n" << std::endl;
     execute_program(file);
-
     file.close();
-    return Status::OK;
-}
-
-
-// ==== TEST?? ====
-
-void test(){
-    optimal_index.print();
-    std::cout << "pop in page 1 = " << optimal_index.pop(1) << std::endl;
-    optimal_index.print();
-
-    std::cout << "pop in page 2 = " << optimal_index.pop(2) << std::endl;
-    optimal_index.print();
-
+    return Status::SUCCESS;
 }
 
 // ==== MAIN ====
-
 int main(int argc, char **argv) {
-    if (argc != 3) {
-	std::cerr << "Usage: optimal <input> 1/0 (to print page table)" << std::endl;
+    if (argc != 2) {
+	std::cerr << "Usage: optimal <input>" << std::endl;
         return 1;
     }
 
@@ -764,7 +712,7 @@ int main(int argc, char **argv) {
     std::cout << "1. FIFO\n";
     std::cout << "2. Second Chance\n";
     std::cout << "3. LRU\n";
-    std::cout << "4. LFU" << std::endl;
+    std::cout << "4. LFU\n> ";
     std::cin >> selection;
 
     if(selection <= 0 || selection >= 5){
@@ -779,18 +727,8 @@ int main(int argc, char **argv) {
     std::cout << "Algorithm selected = " << s << std::endl;
 
 
-    if (open_file(argv[1]) == Status::FILERROR)
-	return 1;
-
-    for(int i = 0; i < MMUs.size(); ++i){
-        MMUs.at(i).print(std::stoi(argv[2]));
-    }
-
-    std::cout << "Cola = " << FIFO_queue.size() << " = ";
-    for(int i = 0; i < FIFO_queue.size(); ++i){
-        std::cout << FIFO_queue.at(i) << ' ';    
-    }
-    std::cout << std::endl;
+    if (open_file(argv[1]) == Status::FILE_ERROR)
+	    return 1;
 
     return 0;
 }
