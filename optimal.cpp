@@ -71,17 +71,17 @@ struct symbol_entry{
     int size;
 
     symbol_entry(int page, int process, bool load, int ptr, int page_size) : pageId(page), pId(process),
-			loaded(load), lAddr(ptr), mAddr(), dAddr(), loadedT(), mark(), size(page_size) {}
+            loaded(load), lAddr(ptr), mAddr(), dAddr(), loadedT(), mark(), size(page_size) {}
 
     void print(){
-	std::cout << pageId << "	| "
-		<< pId << "	| "
-		<< loaded << " \t\t| "
-		<< lAddr << "\t\t| "
-		<< mAddr << "\t\t| "
-		<< dAddr << "\t\t| "
-		<< loadedT << "\t\t| "
-		<< mark << "\t|"
+    std::cout << pageId << "    | "
+        << pId << " | "
+        << loaded << " \t\t| "
+        << lAddr << "\t\t| "
+        << mAddr << "\t\t| "
+        << dAddr << "\t\t| "
+        << loadedT << "\t\t| "
+        << mark << "\t|"
         << size << '\n';
 
     }
@@ -92,7 +92,7 @@ struct symbol_table{
     int current_size = 0;
 
     void push(symbol_entry new_entry){
-    	table[new_entry.lAddr].push_back(new_entry);
+        table[new_entry.lAddr].push_back(new_entry);
     } 
 
     std::vector<symbol_entry>& lookup_ptr(int ptr){
@@ -147,9 +147,9 @@ struct symbol_table{
     void inserted(int pageId, int ptr, int mAddr, int mark, int current_time){
         symbol_entry& entry = lookup_pageId(pageId, ptr);
         entry.loaded = true;
-    	entry.mAddr = mAddr;
-	    entry.dAddr = 0;
-	    entry.loadedT = current_time;
+        entry.mAddr = mAddr;
+        entry.dAddr = 0;
+        entry.loadedT = current_time;
         entry.mark = mark;
     }
 
@@ -181,12 +181,12 @@ struct RAM{
     RAM() = default;
 
     void push(page& new_page, int position){
-	    memory[position] = new_page;
+        memory[position] = new_page;
         if (current_size < RAM_PAGES) current_size++;
     }
 
     void pop(int position){
-	    memory[position].ptrId = -1;
+        memory[position].ptrId = -1;
         memory[position].pageId = -1;
         current_size--;
     }
@@ -219,8 +219,6 @@ struct MMU{
 
     void update_statistics(){
         std::unordered_set<int> unique_process;
-        //statistics new_statistics;
-        //table.get_statistics(new_statistics);
         fragmentation = 0;
 
         for(int i = 0; i < RAM_PAGES; ++i){
@@ -281,10 +279,40 @@ std::vector<int> FIFO_queue;
 //LRU
 int LRU_pointer;
 
+// ===== EXPORT LOGIC =====
+void export_tables(std::vector<MMU>& mmus) {
+    std::ofstream out("estado_tablas.csv");
+    if(!out.is_open()) return;
+    
+    for(size_t i = 0; i < mmus.size(); ++i) {
+        std::string title = AlgorithmStrings[(int)mmus[i].algorithm];
+        out << "=== MMU: " << title << " ===\n";
+        out << "PAGE_ID,PID,LOADED,L-ADDR,M-ADDR,D-ADDR,MARK,SIZE\n";
+        
+        std::vector<symbol_entry*> all_entries;
+        for(auto& pair : mmus[i].table.table) {
+            for(auto& entry : pair.second) {
+                all_entries.push_back(&entry);
+            }
+        }
+        std::sort(all_entries.begin(), all_entries.end(), [](symbol_entry* a, symbol_entry* b){
+            return a->pageId < b->pageId;
+        });
+
+        for(auto* e : all_entries) {
+            out << e->pageId << "," << e->pId << "," << e->loaded << "," 
+                << e->lAddr << "," << e->mAddr << "," << e->dAddr << "," << e->mark << "," << e->size << "\n";
+        }
+        out << "\n";
+    }
+    out.close();
+}
+
+
 // ===== FILL THE REVERSED ACCESS LIST =====
 void access_page(int key, int pages){
     for(int i = 0; i < pages; ++i)
-    	optimal_index.push(key, access_counter++);
+        optimal_index.push(key, access_counter++);
 }
 
 void fill_optimal(command& cmd){
@@ -446,7 +474,7 @@ void update_hit(page& new_page, MMU& selected){
 
 void check_RAM(std::vector<page>& pages, int ptr, MMU& selected){
     for(size_t i = 0; i < pages.size(); ++i){
-	    page& new_page = pages.at(i);
+        page& new_page = pages.at(i);
         if(selected.table.has_page_loaded(new_page.pageId, ptr)){
             selected.simulation_time++;
             update_hit(new_page, selected);
@@ -458,15 +486,6 @@ void check_RAM(std::vector<page>& pages, int ptr, MMU& selected){
     }
 }
 
-/*
-void remove_fragmentation(int ptr, MMU& selected) {
-    if (selected.ptr_frag.count(ptr)) {
-        selected.fragmentation -= selected.ptr_frag[ptr];
-        selected.ptr_frag.erase(ptr);
-        selected.ptr_to_pid.erase(ptr);
-    }
-}
-*/
 void delete_pId(command& cmd, MMU& selected){
     int pId = cmd.params[0];
     
@@ -477,14 +496,6 @@ void delete_pId(command& cmd, MMU& selected){
         if(selected.table.get_pId(candidate.pageId, candidate.ptrId) == pId)
             removed_RAM(candidate.pageId, candidate.ptrId, i, selected);
     }
-    
-    /*
-    std::vector<int> to_delete;
-    for (auto const& [ptr, pid] : selected.ptr_to_pid) {
-        if (pid == pId) to_delete.push_back(ptr);
-    }
-    for (int ptr : to_delete) remove_fragmentation(ptr, selected);
-    */
 }
 
 void delete_ptr(command& cmd, MMU& selected){
@@ -493,7 +504,6 @@ void delete_ptr(command& cmd, MMU& selected){
         page& candidate = selected.MMU_RAM.memory[i];
         if(candidate.ptrId == ptr) removed_RAM(candidate.pageId, candidate.ptrId, i, selected);      
     }
-    //remove_fragmentation(ptr, selected);
 }
 
 void load_ptr(int ptr, MMU& selected){
@@ -529,16 +539,16 @@ void create_ptr(command& cmd, MMU& selected){
 // ===== COMMANDS LOGIC =====
 Status execute_command(command& next_cmd, MMU& selected){
     if(next_cmd.name == "new"){
-	    create_ptr(next_cmd, selected);
+        create_ptr(next_cmd, selected);
     } else if(next_cmd.name == "use"){
-	    use_ptr(next_cmd, selected);
+        use_ptr(next_cmd, selected);
     } else if(next_cmd.name == "delete")
-	    delete_ptr(next_cmd, selected);
+        delete_ptr(next_cmd, selected);
     else if(next_cmd.name == "kill")
-	    delete_pId(next_cmd, selected);
+        delete_pId(next_cmd, selected);
     else {
-	    std::cerr << "Comando no identificado" << std::endl;
-	    return Status::SYNTAX_ERROR;
+        std::cerr << "Comando no identificado" << std::endl;
+        return Status::SYNTAX_ERROR;
     }
     selected.update_statistics();
     return Status::SUCCESS;
@@ -563,56 +573,45 @@ Status parse_line(const std::string& line, command& new_command){
 }
 
 // ===== INTERFACE LOGIC (NCURSES) =====
-void draw_mmu_state(MMU& mmu, int start_y, int start_x, std::string title) {
+void draw_mmu_state(MMU& mmu, int start_y, int start_x, std::string title, int scroll_offset) {
+    // 1. Título
     attron(COLOR_PAIR(2) | A_BOLD);
     mvprintw(start_y, start_x, title.c_str());
     attroff(COLOR_PAIR(2) | A_BOLD);
 
-    mvprintw(start_y + 1, start_x, "PAGE ID | PID | LOADED | L-ADDR | M-ADDR | D-ADDR");
-    int line = 0;
-    
-    for(int i = 0; i < RAM_PAGES; ++i) {
-        if (line > 15) break;
-        page& p = mmu.MMU_RAM.memory[i];
-        if (p.ptrId != -1) {
-            symbol_entry& entry = mmu.table.lookup_pageId(p.pageId, p.ptrId);
-            
-            // Asignación dinámica de color según el PID de forma segura
-            int process_color = 3 + (entry.pId % 6);
-            
-            attron(COLOR_PAIR(process_color));
-            mvprintw(start_y + 2 + line, start_x, "%7d | %3d | %6d | %6d | %6d | %6d",
-                entry.pageId, entry.pId, entry.loaded, entry.lAddr, entry.mAddr, entry.dAddr);
-            attroff(COLOR_PAIR(process_color));
-            
-            line++;
+    // 2. Grilla Dinámica de RAM (10x10)
+    mvprintw(start_y + 1, start_x, "--- RAM (100 PAGINAS) ---");
+    for(int r = 0; r < 10; ++r) {
+        move(start_y + 2 + r, start_x);
+        for(int c = 0; c < 10; ++c) {
+            int mAddr = r * 10 + c;
+            page& p = mmu.MMU_RAM.memory[mAddr];
+            if(p.ptrId == -1 || p.pageId == -1) {
+                printw("[ ]");
+            } else {
+                try {
+                    symbol_entry& entry = mmu.table.lookup_pageId(p.pageId, p.ptrId);
+                    int process_color = 3 + (entry.pId % 6);
+                    attron(COLOR_PAIR(process_color));
+                    printw("[%d]", entry.pId % 10); 
+                    attroff(COLOR_PAIR(process_color));
+                } catch (...) {
+                    printw("[?]");
+                }
+            }
         }
     }
 
-    int sy = start_y + 19;
+    // 3. Estadísticas
+    int sy = start_y + 13;
     mvprintw(sy, start_x, "--- ESTADISTICAS ---");
     
-    std::set<int> active_pids;
-    //for (auto const& [ptr, pid] : mmu.ptr_to_pid) active_pids.insert(pid);
-    mvprintw(sy + 1, start_x, "Procesos Activos: %lu", mmu.process_counter);
+    mvprintw(sy + 1, start_x, "Procesos Activos: %d", mmu.process_counter);
     mvprintw(sy + 2, start_x, "Sim-Time: %ds", mmu.simulation_time);
-    
-    float ram_pct = (mmu.MMU_RAM.current_size * 4.0) / 400.0 * 100.0;
-    mvprintw(sy + 3, start_x, "RAM: %d KB (%.1f%%)", (mmu.ram_size), mmu.ram_porcentage);
-    
-    int vram_pages = 0;
-    for(size_t i = 1; i <= mmu.table.table.size(); ++i) {
-        if (mmu.table.table.find(i) == mmu.table.table.end()) continue;
-        for(size_t j = 0; j < mmu.table.table[i].size(); ++j) {
-            if (!mmu.table.table[i][j].loaded && mmu.table.table[i][j].dAddr > 0) vram_pages++;
-        }
-    }
-    float vram_kb = vram_pages * 4.0;
-    float vram_pct = (vram_kb / 400.0) * 100.0;
-    mvprintw(sy + 4, start_x, "V-RAM: %.0d KB (%.1f%% RAM)", mmu.vram_size, mmu.vram_porcentage);
+    mvprintw(sy + 3, start_x, "RAM: %d KB (%.1f%%)", mmu.ram_size, mmu.ram_porcentage);
+    mvprintw(sy + 4, start_x, "V-RAM: %d KB (%.1f%% RAM)", mmu.vram_size, mmu.vram_porcentage);
 
-    float thrash_pct = mmu.simulation_time == 0 ? 0 : ((float)mmu.trashing / mmu.simulation_time) * 100.0;
-    if (thrash_pct > 50.0) {
+    if (mmu.trashing_porcentage > 50.0) {
         attron(COLOR_PAIR(1) | A_BOLD);
         mvprintw(sy + 5, start_x, "Thrashing: %ds (%.1f%%)", mmu.trashing, mmu.trashing_porcentage);
         attroff(COLOR_PAIR(1) | A_BOLD);
@@ -620,60 +619,126 @@ void draw_mmu_state(MMU& mmu, int start_y, int start_x, std::string title) {
         mvprintw(sy + 5, start_x, "Thrashing: %ds (%.1f%%)", mmu.trashing, mmu.trashing_porcentage);
     }
     mvprintw(sy + 6, start_x, "Fragmentacion: %d B", mmu.fragmentation);
+
+    // 4. Tabla de Páginas (Scrollable)
+    int ty = sy + 8;
+    mvprintw(ty, start_x, "--- TABLA DE PAGINAS (Total: %d) ---", mmu.table.current_size);
+    mvprintw(ty + 1, start_x, "  ID | PID | LOAD | L-ADR | M-ADR | D-ADR");
+
+    std::vector<symbol_entry*> all_entries;
+    for(auto& pair : mmu.table.table) {
+        for(auto& entry : pair.second) {
+            all_entries.push_back(&entry);
+        }
+    }
+    
+    std::sort(all_entries.begin(), all_entries.end(), [](symbol_entry* a, symbol_entry* b){
+        return a->pageId < b->pageId;
+    });
+
+    int line = 0;
+    int max_lines = 14; // Lineas que se mostraran a la vez en la tabla
+    
+    for(size_t i = scroll_offset; i < all_entries.size() && line < max_lines; ++i) {
+        symbol_entry* entry = all_entries[i];
+        int process_color = 3 + (entry->pId % 6);
+        
+        attron(COLOR_PAIR(process_color));
+        mvprintw(ty + 2 + line, start_x, "%4d | %3d | %4d | %5d | %5d | %5d",
+            entry->pageId, entry->pId, entry->loaded, entry->lAddr, entry->mAddr, entry->dAddr);
+        attroff(COLOR_PAIR(process_color));
+        
+        line++;
+    }
+    
+    if (all_entries.size() > scroll_offset + max_lines) {
+        mvprintw(ty + 2 + line, start_x, "... (Use Arriba/Abajo para navegar)");
+    }
 }
 
 void execute_program(std::ifstream& f){
-    initscr(); start_color(); cbreak(); noecho(); nodelay(stdscr, TRUE); curs_set(0);
+    initscr(); start_color(); cbreak(); noecho(); curs_set(0); 
+    keypad(stdscr, TRUE); nodelay(stdscr, TRUE); 
+    
     init_pair(1, COLOR_RED, COLOR_BLACK);
     init_pair(2, COLOR_GREEN, COLOR_BLACK);
 
     // Paleta de colores de fondo de alto contraste para las filas de procesos
-    init_pair(3, COLOR_WHITE, COLOR_RED);       // Proceso grupo 1
-    init_pair(4, COLOR_BLACK, COLOR_GREEN);     // Proceso grupo 2
-    init_pair(5, COLOR_BLACK, COLOR_YELLOW);    // Proceso grupo 3
-    init_pair(6, COLOR_WHITE, COLOR_BLUE);      // Proceso grupo 4
-    init_pair(7, COLOR_WHITE, COLOR_MAGENTA);   // Proceso grupo 5
-    init_pair(8, COLOR_BLACK, COLOR_CYAN);      // Proceso grupo 6
+    init_pair(3, COLOR_WHITE, COLOR_RED);       
+    init_pair(4, COLOR_BLACK, COLOR_GREEN);     
+    init_pair(5, COLOR_BLACK, COLOR_YELLOW);    
+    init_pair(6, COLOR_WHITE, COLOR_BLUE);      
+    init_pair(7, COLOR_WHITE, COLOR_MAGENTA);   
+    init_pair(8, COLOR_BLACK, COLOR_CYAN);      
 
     std::string line;
     bool paused = false;
+    int table_scroll = 0;
+    bool show_export_msg = false;
+    int export_msg_timer = 0;
 
     while (true) {
         int ch = getch();
+        
+        // Controles de teclado
         if (ch == 'p' || ch == 'P') paused = !paused;
+        if (ch == KEY_DOWN) table_scroll++;
+        if (ch == KEY_UP && table_scroll > 0) table_scroll--;
+        
+        // Botón D para descargar
+        if (ch == 'd' || ch == 'D') {
+            export_tables(MMUs);
+            show_export_msg = true;
+            export_msg_timer = 10; // Mostrar el mensaje un par de "frames"
+        }
 
-        if (paused) {
+        if (paused && ch != KEY_DOWN && ch != KEY_UP && ch != 'd' && ch != 'D') {
             attron(A_BOLD);
-            mvprintw(0, 0, "[ SIMULACION PAUSADA - Presione 'p' para reanudar ]");
+            mvprintw(0, 0, "[ SIMULACION PAUSADA - 'P' reanudar | Flechas scrollear | 'D' Exportar CSV ]");
             attroff(A_BOLD);
             refresh();
             usleep(100000);
             continue;
         }
 
-        if (getline(f, line)) {
-            command new_command;
-            if (parse_line(line, new_command) == Status::SYNTAX_ERROR) continue;
-            for(size_t i = 0; i < MMUs.size(); ++i) execute_command(new_command, MMUs.at(i));
-        } else {
-            break; 
+        if (!paused) {
+            if (getline(f, line)) {
+                command new_command;
+                if (parse_line(line, new_command) != Status::SYNTAX_ERROR) {
+                    for(size_t i = 0; i < MMUs.size(); ++i) execute_command(new_command, MMUs.at(i));
+                }
+            } else {
+                break; 
+            }
         }
         
         clear();
-        mvprintw(0, 0, "[ SIMULACION EN CURSO - Presione 'p' para pausar ]");
         
-        draw_mmu_state(MMUs[0], 2, 2, "MMU-OPT");
-        draw_mmu_state(MMUs[1], 2, 60, std::string("MMU-") + AlgorithmStrings[(int)MMUs[1].algorithm]);
+        if (show_export_msg && export_msg_timer > 0) {
+            attron(COLOR_PAIR(2) | A_BOLD);
+            mvprintw(0, 0, "[ TABLAS EXPORTADAS CORRECTAMENTE A 'estado_tablas.csv' ]");
+            attroff(COLOR_PAIR(2) | A_BOLD);
+            export_msg_timer--;
+        } else {
+            mvprintw(0, 0, "[ SIMULACION EN CURSO - 'P' pausar | Flechas scrollear | 'D' Exportar CSV ]");
+        }
+        
+        draw_mmu_state(MMUs[0], 2, 2, "MMU-OPT", table_scroll);
+        draw_mmu_state(MMUs[1], 2, 60, std::string("MMU-") + AlgorithmStrings[(int)MMUs[1].algorithm], table_scroll);
 
         refresh();
-        sleep(2);
+        usleep(150000); // 150ms para que la UI se mantenga fluida con las teclas
     }
 
     nodelay(stdscr, FALSE);
     attron(A_BOLD);
-    mvprintw(32, 2, "[ FIN DE SIMULACION - Presione cualquier tecla para salir ]");
+    mvprintw(39, 2, "[ FIN DE SIMULACION - Presione 'D' para exportar el final o cualquier tecla para salir ]");
     attroff(A_BOLD);
-    getch();
+    
+    int final_ch = getch();
+    if (final_ch == 'd' || final_ch == 'D') {
+        export_tables(MMUs);
+    }
     endwin();
 }
 
@@ -689,8 +754,8 @@ void read_file(std::ifstream& f){
 Status open_file(const std::string& input_file) {
     std::ifstream file(input_file);
     if (!file.is_open()){
-	    std::cerr << "Error: Could not open the file." << std::endl;
-	    return Status::FILE_ERROR;
+        std::cerr << "Error: Could not open the file." << std::endl;
+        return Status::FILE_ERROR;
     }
     read_file(file);
     file.clear();
@@ -703,7 +768,7 @@ Status open_file(const std::string& input_file) {
 // ==== MAIN ====
 int main(int argc, char **argv) {
     if (argc != 2) {
-	std::cerr << "Usage: optimal <input>" << std::endl;
+    std::cerr << "Usage: optimal <input>" << std::endl;
         return 1;
     }
 
@@ -728,7 +793,7 @@ int main(int argc, char **argv) {
 
 
     if (open_file(argv[1]) == Status::FILE_ERROR)
-	    return 1;
+        return 1;
 
     return 0;
 }
