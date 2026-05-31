@@ -661,7 +661,7 @@ void draw_mmu_state(MMU &mmu, int start_y, int start_x, std::string title,
     int ty = sy + 8;
     mvprintw(ty, start_x, "--- TABLA DE PAGINAS (Total: %d) ---",
              mmu.table.current_size);
-    mvprintw(ty + 1, start_x, "  ID | PID | LOAD | L-ADR | M-ADR | D-ADR");
+    mvprintw(ty + 1, start_x, "  ID | PID | LOADED | L-ADR | M-ADR | D-ADR");
 
     std::vector<symbol_entry *> all_entries;
     for (auto &pair : mmu.table.table) {
@@ -683,8 +683,9 @@ void draw_mmu_state(MMU &mmu, int start_y, int start_x, std::string title,
         int process_color = 3 + (entry->pId % 6);
 
         attron(COLOR_PAIR(process_color));
-        mvprintw(ty + 2 + line, start_x, "%4d | %3d | %4d | %5d | %5d | %5d",
-                 entry->pageId, entry->pId, entry->loaded, entry->lAddr,
+        char loadedMark = entry->loaded ? 'X' : ' ';
+        mvprintw(ty + 2 + line, start_x, "%4d | %3d | %6c | %5d | %5d | %5d",
+                 entry->pageId, entry->pId, loadedMark, entry->lAddr,
                  entry->mAddr, entry->dAddr);
         attroff(COLOR_PAIR(process_color));
 
