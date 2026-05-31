@@ -7,13 +7,17 @@
 #include <vector>
 
 #define NEW_OP 0
-#define NEW_PROB 15
+#define NEW_PROB 8
+#define NEW_PROB_FILL 80
 #define USE_OP 1
-#define USE_PROB 60
+#define USE_PROB 85
+#define USE_PROB_FILL 15
 #define DELETE_OP 2
-#define DELETE_PROB 0
+#define DELETE_PROB 4
+#define DELETE_PROB_FILL 3
 #define KILL_OP 3
-#define KILL_PROB 0
+#define KILL_PROB 3
+#define KILL_PROB_FILL 2
 
 using namespace std;
 
@@ -84,8 +88,10 @@ int main(int argc, char **argv) {
     int deleteCount = 0;
     int killCount = 0;
 
-    // Para tamaños random entre 1 y 10000
     uniform_int_distribution<int> sizeDist(1, 10000);
+
+    int fillPhase = N / 10;
+    fillPhase = clamp(fillPhase, 0, 500);
 
     auto randomAliveProcess = [&]() {
         vector<int> pids(aliveProcesses.begin(), aliveProcesses.end());
@@ -127,22 +133,38 @@ int main(int argc, char **argv) {
         // if (possibleOps.empty()) {
         //   break;
         // }
-
         if (nextPID <= P || !aliveProcesses.empty()) {
-            possibleOps.insert(possibleOps.end(), NEW_PROB, NEW_OP);
+            if (totalInstructions < fillPhase) {
+                possibleOps.insert(possibleOps.end(), NEW_PROB_FILL, NEW_OP);
+            } else {
+                possibleOps.insert(possibleOps.end(), NEW_PROB, NEW_OP);
+            }
         }
 
         if (!alivePointers.empty()) {
-            possibleOps.insert(possibleOps.end(), USE_PROB, USE_OP);
+            if (totalInstructions < fillPhase) {
+                possibleOps.insert(possibleOps.end(), USE_PROB_FILL, USE_OP);
+            } else {
+                possibleOps.insert(possibleOps.end(), USE_PROB, USE_OP);
+            }
         }
 
         if (!alivePointers.empty()) {
-            possibleOps.insert(possibleOps.end(), DELETE_PROB, DELETE_OP);
+            if (totalInstructions < fillPhase) {
+                possibleOps.insert(possibleOps.end(), DELETE_PROB_FILL,
+                                   DELETE_OP);
+            } else {
+                possibleOps.insert(possibleOps.end(), DELETE_PROB, DELETE_OP);
+            }
         }
 
         if (!aliveProcesses.empty() &&
             !(totalInstructions < N - 1 && aliveProcesses.size() == 1)) {
-            possibleOps.insert(possibleOps.end(), KILL_PROB, KILL_OP);
+            if (totalInstructions < fillPhase) {
+                possibleOps.insert(possibleOps.end(), KILL_PROB_FILL, KILL_OP);
+            } else {
+                possibleOps.insert(possibleOps.end(), KILL_PROB, KILL_OP);
+            }
         }
 
         uniform_int_distribution<int> opDist(0, possibleOps.size() - 1);
