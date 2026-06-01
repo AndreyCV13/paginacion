@@ -271,35 +271,16 @@ std::vector<int> FIFO_queue;
 int LRU_pointer;
 
 // ===== EXPORT LOGIC =====
-void export_tables(std::vector<MMU> &mmus) {
-    std::ofstream out("estado_tablas.csv");
-    if (!out.is_open())
-        return;
-
-    for (size_t i = 0; i < mmus.size(); ++i) {
-        std::string title = AlgorithmStrings[(int)mmus[i].algorithm];
-        out << "=== MMU: " << title << " ===\n";
-        out << "PAGE_ID,PID,LOADED,L-ADDR,M-ADDR,D-ADDR,MARK,SIZE\n";
-
-        std::vector<symbol_entry *> all_entries;
-        for (auto &pair : mmus[i].table.table) {
-            for (auto &entry : pair.second) {
-                all_entries.push_back(&entry);
-            }
-        }
-        std::sort(all_entries.begin(), all_entries.end(),
-                  [](symbol_entry *a, symbol_entry *b) {
-                      return a->pageId < b->pageId;
-                  });
-
-        for (auto *e : all_entries) {
-            out << e->pageId << "," << e->pId << "," << e->loaded << ","
-                << e->lAddr << "," << e->mAddr << "," << e->dAddr << ","
-                << e->mark << "," << e->size << "\n";
-        }
-        out << "\n";
+// Ahora copia el archivo de instrucciones original sin modificar
+void export_instructions_file() {
+    if (current_instruction_file.empty()) return;
+    
+    std::ifstream src(current_instruction_file, std::ios::binary);
+    std::ofstream dst("exported_instructions.txt", std::ios::binary);
+    
+    if (src && dst) {
+        dst << src.rdbuf();
     }
-    out.close();
 }
 
 // ===== FILL THE REVERSED ACCESS LIST =====
@@ -657,11 +638,11 @@ void draw_mmu_state(MMU &mmu, int start_y, int start_x, std::string title,
     }
     mvprintw(sy + 6, start_x, "Fragmentacion: %d B", mmu.fragmentation);
 
-    // 4. Tabla de Páginas (Scrollable)
+    // 4. Tabla de Páginas (Scrollable) Modificada para agregar TIME y MRK
     int ty = sy + 8;
     mvprintw(ty, start_x, "--- TABLA DE PAGINAS (Total: %d) ---",
              mmu.table.current_size);
-    mvprintw(ty + 1, start_x, "  ID | PID | LOADED | L-ADR | M-ADR | D-ADR");
+    mvprintw(ty + 1, start_x, "  ID | PID | LOAD | L-ADR | M-ADR | D-ADR | TIME | MRK");
 
     std::vector<symbol_entry *> all_entries;
     for (auto &pair : mmu.table.table) {
@@ -684,9 +665,11 @@ void draw_mmu_state(MMU &mmu, int start_y, int start_x, std::string title,
 
         attron(COLOR_PAIR(process_color));
         char loadedMark = entry->loaded ? 'X' : ' ';
-        mvprintw(ty + 2 + line, start_x, "%4d | %3d | %6c | %5d | %5d | %5d",
+        
+        // Formato ajustado para acomodar las nuevas columnas
+        mvprintw(ty + 2 + line, start_x, "%4d | %3d | %4c | %5d | %5d | %5d | %4d | %3d",
                  entry->pageId, entry->pId, loadedMark, entry->lAddr,
-                 entry->mAddr, entry->dAddr);
+                 entry->mAddr, entry->dAddr, entry->loadedT, entry->mark);
         attroff(COLOR_PAIR(process_color));
 
         line++;
@@ -721,9 +704,9 @@ RunResult execute_program(std::ifstream &f) {
         if (ch == KEY_UP && table_scroll > 0)
             table_scroll--;
 
-        // Botón D para descargar
+        // Botón D para descargar archivo de instrucciones
         if (ch == 'd' || ch == 'D') {
-            export_tables(MMUs);
+            export_instructions_file();
             show_export_msg = true;
             export_msg_timer = 10; // Mostrar el mensaje un par de "frames"
         }
@@ -733,7 +716,7 @@ RunResult execute_program(std::ifstream &f) {
             attron(A_BOLD);
             mvprintw(0, 0,
                      "[ SIMULACION PAUSADA - 'P' Reanudar | Flechas Scrollear "
-                     "| 'D' Exportar CSV | 'Q' Reiniciar ]");
+                     "| 'D' Exportar Inst | 'Q' Reiniciar ]");
             attroff(A_BOLD);
             refresh();
             usleep(100000);
@@ -758,13 +741,13 @@ RunResult execute_program(std::ifstream &f) {
             attron(COLOR_PAIR(2) | A_BOLD);
             mvprintw(
                 0, 0,
-                "[ TABLAS EXPORTADAS CORRECTAMENTE A 'estado_tablas.csv' ]");
+                "[ ARCHIVO EXPORTADO A 'exported_instructions.txt' ]");
             attroff(COLOR_PAIR(2) | A_BOLD);
             export_msg_timer--;
         } else {
             mvprintw(0, 0,
                      "[ SIMULACION EN CURSO - 'P' Pausar | Flechas Scrollear | "
-                     "'D' Exportar CSV | 'Q' Reiniciar ]");
+                     "'D' Exportar Inst | 'Q' Reiniciar ]");
         }
 
         draw_mmu_state(MMUs[0], 2, 2, "MMU-OPT", table_scroll);
@@ -781,7 +764,7 @@ RunResult execute_program(std::ifstream &f) {
     nodelay(stdscr, FALSE);
     attron(A_BOLD);
     mvprintw(39, 2,
-             "[ FIN DE SIMULACION - Presione 'D' para exportar el final, 'Q' "
+             "[ FIN DE SIMULACION - Presione 'D' para exportar inst, 'Q' "
              "para reiniciar o "
              "cualquier tecla para salir ]");
     attroff(A_BOLD);
@@ -789,7 +772,7 @@ RunResult execute_program(std::ifstream &f) {
     while (true) {
         int final_ch = getch();
         if (final_ch == 'd' || final_ch == 'D') {
-            export_tables(MMUs);
+            export_instructions_file();
         }
         if (final_ch == 'q' || final_ch == 'Q') {
             return RunResult::RESTART;
@@ -811,6 +794,9 @@ void read_file(std::ifstream &f) {
 }
 
 RunResult open_file(const std::string &input_file) {
+    // Almacenamos el nombre del archivo para que la exportación lo use
+    current_instruction_file = input_file;
+
     std::ifstream file(input_file);
     if (!file.is_open()) {
         std::cerr << "Error: Could not open the file." << std::endl;
